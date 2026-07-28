@@ -13,10 +13,11 @@ def get_drive_service():
 def list_excel_files(folder_id=None):
     service = get_drive_service()
     
-    # Consulta base: buscar archivos Excel
-    query = "mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' or mimeType='application/vnd.ms-excel'"
+    # --- ESTA ES LA CONSULTA ACTUALIZADA (OPCIÓN B) ---
+    # Busca hojas de Google, Excel (.xlsx) y Excel antiguos (.xls)
+    query = "mimeType='application/vnd.google-apps.spreadsheet' or mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' or mimeType='application/vnd.ms-excel'"
     
-    # --- ESTA ES LA LÍNEA QUE TE FALTABA ---
+    # Si el usuario pasó un ID de carpeta, buscar solo dentro de esa carpeta
     if folder_id:
         query = f"parents='{folder_id}' and ({query})"
         
