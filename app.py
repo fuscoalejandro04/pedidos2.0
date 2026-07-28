@@ -12,36 +12,53 @@ st.set_page_config(
 st.title("📦 Carga de Pedidos desde Lista de Precios")
 st.divider()
 
-# --- ID DE LA CARPETA DE DRIVE ---
-# Reemplaza con el ID de la carpeta "clientes" que capturaste:
+# --- IDS DE LAS CARPETAS DE DRIVE (YA ACTUALIZADOS) ---
+# Reemplazados con los IDs exactos que me diste
 FOLDER_CLIENTES = "1NeBhwrAWxPdrScjrIPeCaN2xwOAf5Bue" 
+FOLDER_LISTAS   = "1COsdgql81C20ePt41qTagXgMZ5RnmnGu"   
 
-# --- LÓGICA DE LA APP ---
-st.subheader("👤 Seleccionar Cliente")
+# --- CARGA DE ARCHIVOS (CLIENTES) ---
+st.subheader("👤 Base de Datos de Clientes")
 
 try:
-    # Obtener la lista de archivos Excel de la carpeta
     clientes_files = list_excel_files(FOLDER_CLIENTES)
 
-    # --- ESPÍA: ESTO TE DIRÁ QUÉ ESTÁ PASANDO ---
-    st.write("🔍 Respuesta de Google Drive (archivos encontrados):", clientes_files)
-
     if not clientes_files:
-        st.warning("No se encontraron archivos Excel o Hojas de Google en la carpeta especificada.")
+        st.warning("No se encontraron archivos en la carpeta 'clientes'.")
     else:
-        # Crear una lista con los nombres de los archivos
-        file_options = {file['name']: file['id'] for file in clientes_files}
-        selected_file_name = st.selectbox("Selecciona un archivo:", list(file_options.keys()))
+        clientes_opciones = {f['name']: f['id'] for f in clientes_files}
+        cliente_seleccionado = st.selectbox("Selecciona la base de clientes:", list(clientes_opciones.keys()))
 
-        if selected_file_name:
-            file_id = file_options[selected_file_name]
-            
-            with st.spinner("Cargando archivo desde Google Drive..."):
-                # Leer el archivo seleccionado
-                df = read_excel_from_drive(file_id)
-                
-                st.success(f"✅ Archivo cargado exitosamente: {selected_file_name}")
-                st.dataframe(df, use_container_width=True)
+        if cliente_seleccionado:
+            cliente_id = clientes_opciones[cliente_seleccionado]
+            with st.spinner("Cargando base de clientes..."):
+                df_clientes = read_excel_from_drive(cliente_id)
+                st.success(f"✅ Base de clientes cargada: {cliente_seleccionado}")
+                st.dataframe(df_clientes, use_container_width=True)
 
 except Exception as e:
-    st.error(f"Ocurrió un error general en la app: {e}")
+    st.error(f"Error al cargar la base de clientes: {e}")
+
+st.divider()
+
+# --- CARGA DE ARCHIVOS (LISTAS DE PRECIOS) ---
+st.subheader("💰 Lista de Precios")
+
+try:
+    listas_files = list_excel_files(FOLDER_LISTAS)
+
+    if not listas_files:
+        st.warning("No se encontraron archivos en la carpeta 'listas'.")
+    else:
+        listas_opciones = {f['name']: f['id'] for f in listas_files}
+        lista_seleccionada = st.selectbox("Selecciona la lista de precios:", list(listas_opciones.keys()))
+
+        if lista_seleccionada:
+            lista_id = listas_opciones[lista_seleccionada]
+            with st.spinner("Cargando lista de precios..."):
+                df_listas = read_excel_from_drive(lista_id)
+                st.success(f"✅ Lista de precios cargada: {lista_seleccionada}")
+                st.dataframe(df_listas, use_container_width=True)
+
+except Exception as e:
+    st.error(f"Error al cargar la lista de precios: {e}")
