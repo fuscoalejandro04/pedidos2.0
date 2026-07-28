@@ -25,31 +25,58 @@ try:
     df_clientes = read_excel_from_drive(clientes_files[0]['id']) if clientes_files else pd.DataFrame()
     df_listas = read_excel_from_drive(listas_files[0]['id']) if listas_files else pd.DataFrame()
 except Exception as e:
-    st.error(f"Error inicial de carga: {e}")
+    # Mostramos el error, pero NO dejamos que la app explote
+    st.error(f"Error inicial de carga. Verifica que los archivos existan en Drive: {e}")
+    df_clientes = pd.DataFrame()
+    df_listas = pd.DataFrame()
 
-# --- CARGA DE IA LOCAL (CACHÉ PARA QUE NO TARDE CADA VEZ QUE BUSQUES) ---
+# --- CARGA DE IA LOCAL ---
 @st.cache_resource
 def load_ai_model():
     return SentenceTransformer('all-MiniLM-L6-v2')
 
-# Pre-calculamos los vectores de los productos para que la búsqueda sea instantánea
+# --- CREACIÓN DE LOS VECTORES DE PRODUCTOS (CON SEGURIDAD) ---
 @st.cache_data
 def get_product_vectors(_df):
+    # 1. Si el DataFrame está vacío, salimos sin hacer nada
     if _df.empty:
         return np.array([]), []
-    nombres = _df.iloc[:, 0].astype(str).tolist()
-    model = load_ai_model()
-    embeddings = model.encode(nombres)
+    
+    # 2. Limpiamos filas vacías o con espacios en blanco en el nombre del producto
+    # Tomamos la primera columna (índice 0) como nombre
+    valid_mask = _df.iloc[:, 0].notna() & (_df.iloc[:, 0].astype(str).str.strip() != '')
+    _df_valid = _df[valid_mask]
+    
+    # 3. Si después de limpiar no quedó nada, salimos
+    if _df_valid.empty:
+        return np.array([]), []
+
+    nombres = _df_valid.iloc[:, 0].astype(str).tolist()
+    try:
+        model = load_ai_model()
+        embeddings = model.encode(nombres)
+    except Exception:
+        # Si la IA falla al codificar, devolvemos vacío para no romper la app
+        return np.array([]), []
+    
     return embeddings, nombres
 
+# Inicializamos variables de IA vacías por seguridad
+product_embeddings = np.array([])
+product_names = []
+
+# Solo intentamos generar la IA si tenemos productos reales
 if not df_listas.empty:
-    product_embeddings, product_names = get_product_vectors(df_listas)
+    try:
+        product_embeddings, product_names = get_product_vectors(df_listas)
+    except Exception:
+        pass # Si falla la cache, la app sigue viva
 
 # --- INTERFAZ ---
 st.title("🤖 Sistema de Pedidos con IA")
 st.divider()
 
-# 1. CLIENTE (Igual que antes)
+# 1. CLIENTE
 st.subheader("👤 Seleccionar Cliente")
 busqueda_cliente = st.text_input("🔎 Buscar cliente por código o nombre:")
 if busqueda_cliente and not df_clientes.empty:
@@ -60,42 +87,51 @@ if busqueda_cliente and not df_clientes.empty:
         if sel:
             st.session_state.cliente_actual = sel.split(" - ", 1)[1]
             st.success(f"✅ Cliente: **{st.session_state.cliente_actual}**")
-    else: st.info("Cliente no encontrado.")
+    else:
+        st.info("Cliente no encontrado.")
 elif st.session_state.cliente_actual:
     st.success(f"✅ Cliente actual: **{st.session_state.cliente_actual}**")
 
 st.divider()
 
-# 2. BUSCADOR INTELIGENTE (IA local)
-if st.session_state.cliente_actual and not df_listas.empty:
+# 2. BUSCADOR INTELIGENTE
+if st.session_state.cliente_actual and not df_listas.empty and len(product_names) > 0:
     st.subheader("📦 Buscar Productos (Búsqueda Inteligente)")
     busqueda_producto = st.text_input("🔎 Describe el producto (escribe 'tarugo', 'martillo', etc.):")
 
     if busqueda_producto:
         with st.spinner("🤖 La IA está analizando tu búsqueda..."):
-            # Convertimos la búsqueda del usuario en un vector
             model = load_ai_model()
             query_vector = model.encode([busqueda_producto])
             
-            # Calculamos la similitud contra TODOS los productos
+            # Calculamos la similitud
             similarities = cosine_similarity(query_vector, product_embeddings)[0]
             
-            # Ordenamos los productos de mayor a menor similitud
-            top_indices = similarities.argsort()[-10:][::-1] # Tomamos los 10 mejores
+            # Ordenamos y tomamos los 10 mejores
+            top_indices = similarities.argsort()[-10:][::-1]
             
-            # Mostramos resultados
             st.markdown("**Resultados encontrados por similitud:**")
             encontro_algo = False
+            
             for idx in top_indices:
-                if similarities[idx] > 0.3: # Si la similitud es superior al 30% lo mostramos
+                # Filtramos por similitud mayor al 30% para no mostrar basura
+                if similarities[idx] > 0.3:
                     encontro_algo = True
                     nombre = product_names[idx]
-                    precio = df_listas.iloc[idx, 1]
                     
+                    # Buscamos el precio en el DataFrame original
+                    try:
+                        # Usamos .loc para encontrar el precio basado en el nombre exacto
+                        precio = df_listas[df_listas.iloc[:, 0] == nombre].iloc[0, 1]
+                    except:
+                        precio = 0.0
+
                     with st.container(border=True):
                         cols = st.columns([3, 1, 1, 1])
-                        with cols[0]: st.markdown(f"**{nombre}**")
-                        with cols[1]: st.markdown(f"💰 ${precio:,.2f} c/u")
+                        with cols[0]:
+                            st.markdown(f"**{nombre}**")
+                        with cols[1]:
+                            st.markdown(f"💰 ${precio:,.2f} c/u")
                         with cols[2]:
                             cant = st.number_input("Cant.", min_value=1, step=1, value=1, key=f"cant_{idx}")
                         with cols[3]:
@@ -107,6 +143,9 @@ if st.session_state.cliente_actual and not df_listas.empty:
                                 st.rerun()
             if not encontro_algo:
                 st.info("La IA buscó el producto, pero no encontró una coincidencia fuerte (prueba con otras palabras).")
+
+elif st.session_state.cliente_actual and len(product_names) == 0:
+    st.warning("No se pudieron cargar productos. Revisa que el Excel tenga datos en la primera columna.")
 
 # 3. CARRITO DE PEDIDOS
 st.divider()
