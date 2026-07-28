@@ -14,7 +14,7 @@ st.divider()
 
 # --- ID DE LA CARPETA DE DRIVE ---
 # Reemplaza con el ID de la carpeta "clientes" que capturaste:
-FOLDER_CLIENTES = "1NeBhwrAWxPdrScjrPeCaN2xwOAf5Bue" 
+FOLDER_CLIENTES = "1NeBhwrAWxPdrScjrIPeCaN2xwOAf5Bue" 
 
 # --- LÓGICA DE LA APP ---
 st.subheader("👤 Seleccionar Cliente")
