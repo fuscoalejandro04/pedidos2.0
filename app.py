@@ -23,22 +23,25 @@ try:
     # Obtener la lista de archivos Excel de la carpeta
     clientes_files = list_excel_files(FOLDER_CLIENTES)
 
+    # --- ESPÍA: ESTO TE DIRÁ QUÉ ESTÁ PASANDO ---
+    st.write("🔍 Respuesta de Google Drive (archivos encontrados):", clientes_files)
+
     if not clientes_files:
-        st.warning("No se encontraron archivos Excel en la carpeta de Drive especificada.")
+        st.warning("No se encontraron archivos Excel o Hojas de Google en la carpeta especificada.")
     else:
         # Crear una lista con los nombres de los archivos
         file_options = {file['name']: file['id'] for file in clientes_files}
-        selected_file_name = st.selectbox("Selecciona un archivo de precios:", list(file_options.keys()))
+        selected_file_name = st.selectbox("Selecciona un archivo:", list(file_options.keys()))
 
         if selected_file_name:
             file_id = file_options[selected_file_name]
             
             with st.spinner("Cargando archivo desde Google Drive..."):
-                # Leer el Excel seleccionado
+                # Leer el archivo seleccionado
                 df = read_excel_from_drive(file_id)
                 
                 st.success(f"✅ Archivo cargado exitosamente: {selected_file_name}")
                 st.dataframe(df, use_container_width=True)
 
 except Exception as e:
-    st.error(f"Ocurrió un error al conectar con Drive: {e}")
+    st.error(f"Ocurrió un error general en la app: {e}")
