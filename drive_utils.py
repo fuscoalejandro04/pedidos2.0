@@ -13,11 +13,11 @@ def get_drive_service():
 def list_excel_files(folder_id=None):
     service = get_drive_service()
     
-    # --- ESTA ES LA CONSULTA ACTUALIZADA (OPCIÓN B) ---
-    # Busca hojas de Google, Excel (.xlsx) y Excel antiguos (.xls)
+    # --- CONSULTA ACTUALIZADA ---
+    # Busca hojas de Google, archivos .xlsx y .xls
     query = "mimeType='application/vnd.google-apps.spreadsheet' or mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' or mimeType='application/vnd.ms-excel'"
     
-    # Si el usuario pasó un ID de carpeta, buscar solo dentro de esa carpeta
+    # Filtro por carpeta
     if folder_id:
         query = f"parents='{folder_id}' and ({query})"
         
@@ -26,7 +26,23 @@ def list_excel_files(folder_id=None):
 
 def read_excel_from_drive(file_id):
     service = get_drive_service()
-    request = service.files().get_media(fileId=file_id)
-    file_data = request.execute()
-    df = pd.read_excel(io.BytesIO(file_data))
-    return df
+    try:
+        # 1. Obtener el tipo de archivo para saber si es una Hoja de Google
+        file_metadata = service.files().get(fileId=file_id, fields="mimeType").execute()
+        mime_type = file_metadata.get('mimeType')
+        
+        # 2. Descargar el archivo (si es Hoja de Google, convertirla a Excel en el vuelo)
+        if mime_type == 'application/vnd.google-apps.spreadsheet':
+            request = service.files().export_media(
+                fileId=file_id, 
+                mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+        else:
+            request = service.files().get_media(fileId=file_id)
+            
+        file_data = request.execute()
+        df = pd.read_excel(io.BytesIO(file_data))
+        return df
+    except Exception as e:
+        st.error(f"Error al leer el archivo de Drive: {e}")
+        return pd.DataFrame()
