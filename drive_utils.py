@@ -16,7 +16,7 @@ def list_excel_files(folder_id=None):
     # Consulta base: buscar archivos Excel
     query = "mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' or mimeType='application/vnd.ms-excel'"
     
-    # Si el usuario pasó un ID de carpeta, buscar solo dentro de esa carpeta
+    # --- ESTA ES LA LÍNEA QUE TE FALTABA ---
     if folder_id:
         query = f"parents='{folder_id}' and ({query})"
         
