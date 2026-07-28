@@ -25,9 +25,14 @@ try:
     df_clientes = read_excel_from_drive(clientes_files[0]['id']) if clientes_files else pd.DataFrame()
     df_listas = read_excel_from_drive(listas_files[0]['id']) if listas_files else pd.DataFrame()
     
-    # Configuramos la IA de Google Gemini con la API Key de los Secretos
+        # Configuramos la IA de Google Gemini
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    model = genai.GenerativeModel('gemini-1.5-flash') # Modelo ultrarrápido y gratuito
+    
+    # Línea de diagnóstico para saber si la clave se cargó
+    st.write("🔑 Clave API cargada correctamente:", st.secrets["GEMINI_API_KEY"][:10] + "...") 
+
+    # Le agregamos el prefijo "models/" para evitar el error NotFound
+    model = genai.GenerativeModel('models/gemini-1.5-flash') 
 
     # Creamos un "contexto" para que la IA sepa cuáles son tus productos
     inventario_texto = ""
