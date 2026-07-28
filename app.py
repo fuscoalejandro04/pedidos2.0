@@ -1,153 +1,115 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
+import google.generativeai as genai
 from drive_utils import list_excel_files, read_excel_from_drive
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
 
-# --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Sistema de Pedidos IA", page_icon="🤖", layout="wide")
+# --- CONFIGURACIÓN ---
+st.set_page_config(page_title="Asistente de Pedidos IA", page_icon="🤖", layout="wide")
 
-# --- ESTADO DE SESIÓN ---
+# --- INICIALIZACIÓN DE ESTADOS ---
 if 'pedido' not in st.session_state:
     st.session_state.pedido = []
 if 'cliente_actual' not in st.session_state:
     st.session_state.cliente_actual = None
+if 'messages' not in st.session_state:
+    st.session_state.messages = []
 
-# --- IDS DE DRIVE ---
+# --- CONFIGURACIÓN DE DRIVE ---
 FOLDER_CLIENTES = "1NeBhwrAWxPdrScjrIPeCaN2xwOAf5Bue" 
 FOLDER_LISTAS   = "1COsdgql81C20ePt41qTagXgMZ5RnmnGu"   
 
-# --- CARGA DE DATOS ---
+# --- CARGA DE DATOS Y CONFIGURACIÓN DE IA ---
 try:
     clientes_files = list_excel_files(FOLDER_CLIENTES)
     listas_files = list_excel_files(FOLDER_LISTAS)
     df_clientes = read_excel_from_drive(clientes_files[0]['id']) if clientes_files else pd.DataFrame()
     df_listas = read_excel_from_drive(listas_files[0]['id']) if listas_files else pd.DataFrame()
+    
+    # Configuramos la IA de Google Gemini con la API Key de los Secretos
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    model = genai.GenerativeModel('gemini-1.5-flash') # Modelo ultrarrápido y gratuito
+
+    # Creamos un "contexto" para que la IA sepa cuáles son tus productos
+    inventario_texto = ""
+    if not df_listas.empty:
+        inventario_texto = "\n".join([f"- Producto: {row.iloc[0]}, Precio: ${row.iloc[1]}" for _, row in df_listas.iterrows()])
+        
 except Exception as e:
-    # Mostramos el error, pero NO dejamos que la app explote
-    st.error(f"Error inicial de carga. Verifica que los archivos existan en Drive: {e}")
-    df_clientes = pd.DataFrame()
-    df_listas = pd.DataFrame()
+    st.error(f"Error al cargar datos: {e}")
 
-# --- CARGA DE IA LOCAL ---
-@st.cache_resource
-def load_ai_model():
-    return SentenceTransformer('all-MiniLM-L6-v2')
+st.title("🤖 Asistente de Pedidos")
 
-# --- CREACIÓN DE LOS VECTORES DE PRODUCTOS (CON SEGURIDAD) ---
-@st.cache_data
-def get_product_vectors(_df):
-    # 1. Si el DataFrame está vacío, salimos sin hacer nada
-    if _df.empty:
-        return np.array([]), []
-    
-    # 2. Limpiamos filas vacías o con espacios en blanco en el nombre del producto
-    # Tomamos la primera columna (índice 0) como nombre
-    valid_mask = _df.iloc[:, 0].notna() & (_df.iloc[:, 0].astype(str).str.strip() != '')
-    _df_valid = _df[valid_mask]
-    
-    # 3. Si después de limpiar no quedó nada, salimos
-    if _df_valid.empty:
-        return np.array([]), []
+# --- SELECCIÓN DE CLIENTE ---
+if not st.session_state.cliente_actual:
+    st.subheader("👤 1. Seleccionar Cliente")
+    busqueda_cliente = st.text_input("🔎 Buscar cliente por nombre:")
+    if busqueda_cliente and not df_clientes.empty:
+        df_filtrado = df_clientes[df_clientes.astype(str).apply(lambda x: x.str.contains(busqueda_cliente, case=False)).any(axis=1)]
+        if not df_filtrado.empty:
+            opciones = [f"{r.iloc[0]} - {r.iloc[1]}" for _, r in df_filtrado.iterrows()]
+            sel = st.selectbox("Resultados:", opciones)
+            if sel:
+                st.session_state.cliente_actual = sel.split(" - ", 1)[1]
+                st.success(f"Cliente seleccionado: **{st.session_state.cliente_actual}**")
+                st.rerun()
+else:
+    st.subheader("👤 Cliente actual")
+    st.success(f"**{st.session_state.cliente_actual}**")
+    if st.button("🔄 Cambiar cliente"):
+        st.session_state.cliente_actual = None
+        st.rerun()
 
-    nombres = _df_valid.iloc[:, 0].astype(str).tolist()
-    try:
-        model = load_ai_model()
-        embeddings = model.encode(nombres)
-    except Exception:
-        # Si la IA falla al codificar, devolvemos vacío para no romper la app
-        return np.array([]), []
-    
-    return embeddings, nombres
+# --- CHATBOT DE PEDIDOS (SOLO SI HAY CLIENTE SELECCIONADO) ---
+if st.session_state.cliente_actual and inventario_texto:
+    st.divider()
+    st.subheader("💬 Chat de Pedidos")
 
-# Inicializamos variables de IA vacías por seguridad
-product_embeddings = np.array([])
-product_names = []
+    # Mostrar el historial del chat
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
 
-# Solo intentamos generar la IA si tenemos productos reales
-if not df_listas.empty:
-    try:
-        product_embeddings, product_names = get_product_vectors(df_listas)
-    except Exception:
-        pass # Si falla la cache, la app sigue viva
+    # Input de chat
+    if prompt := st.chat_input("Escribe lo que necesitas (ej: 'Busco 5 martillos o algo para madera')"):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-# --- INTERFAZ ---
-st.title("🤖 Sistema de Pedidos con IA")
-st.divider()
-
-# 1. CLIENTE
-st.subheader("👤 Seleccionar Cliente")
-busqueda_cliente = st.text_input("🔎 Buscar cliente por código o nombre:")
-if busqueda_cliente and not df_clientes.empty:
-    df_filtro_clientes = df_clientes[df_clientes.astype(str).apply(lambda x: x.str.contains(busqueda_cliente, case=False)).any(axis=1)]
-    if not df_filtro_clientes.empty:
-        opciones = [f"{str(r.iloc[0])} - {str(r.iloc[1])}" for _, r in df_filtro_clientes.iterrows()]
-        sel = st.selectbox("Resultados:", opciones)
-        if sel:
-            st.session_state.cliente_actual = sel.split(" - ", 1)[1]
-            st.success(f"✅ Cliente: **{st.session_state.cliente_actual}**")
-    else:
-        st.info("Cliente no encontrado.")
-elif st.session_state.cliente_actual:
-    st.success(f"✅ Cliente actual: **{st.session_state.cliente_actual}**")
-
-st.divider()
-
-# 2. BUSCADOR INTELIGENTE
-if st.session_state.cliente_actual and not df_listas.empty and len(product_names) > 0:
-    st.subheader("📦 Buscar Productos (Búsqueda Inteligente)")
-    busqueda_producto = st.text_input("🔎 Describe el producto (escribe 'tarugo', 'martillo', etc.):")
-
-    if busqueda_producto:
-        with st.spinner("🤖 La IA está analizando tu búsqueda..."):
-            model = load_ai_model()
-            query_vector = model.encode([busqueda_producto])
-            
-            # Calculamos la similitud
-            similarities = cosine_similarity(query_vector, product_embeddings)[0]
-            
-            # Ordenamos y tomamos los 10 mejores
-            top_indices = similarities.argsort()[-10:][::-1]
-            
-            st.markdown("**Resultados encontrados por similitud:**")
-            encontro_algo = False
-            
-            for idx in top_indices:
-                # Filtramos por similitud mayor al 30% para no mostrar basura
-                if similarities[idx] > 0.3:
-                    encontro_algo = True
-                    nombre = product_names[idx]
-                    
-                    # Buscamos el precio en el DataFrame original
-                    try:
-                        # Usamos .loc para encontrar el precio basado en el nombre exacto
-                        precio = df_listas[df_listas.iloc[:, 0] == nombre].iloc[0, 1]
-                    except:
-                        precio = 0.0
-
-                    with st.container(border=True):
-                        cols = st.columns([3, 1, 1, 1])
-                        with cols[0]:
-                            st.markdown(f"**{nombre}**")
-                        with cols[1]:
-                            st.markdown(f"💰 ${precio:,.2f} c/u")
-                        with cols[2]:
-                            cant = st.number_input("Cant.", min_value=1, step=1, value=1, key=f"cant_{idx}")
-                        with cols[3]:
-                            if st.button("➕ Agregar", key=f"btn_{idx}"):
+        # Llamada a la IA
+        with st.chat_message("assistant"):
+            with st.spinner("Pensando..."):
+                system_prompt = f"""Eres un asistente de ventas mayoristas. 
+                El cliente actual es {st.session_state.cliente_actual}.
+                El inventario disponible es:
+                {inventario_texto}
+                
+                Tu trabajo es ayudar a encontrar productos y sugerir precios. Si el usuario pide algo, pregúntale cuántas unidades quiere y confirma el precio.
+                Menciona siempre que el precio es unitario.
+                """
+                full_prompt = f"{system_prompt}\n\nUsuario: {prompt}"
+                response = model.generate_content(full_prompt)
+                respuesta_ia = response.text
+                
+                st.markdown(respuesta_ia)
+                st.session_state.messages.append({"role": "assistant", "content": respuesta_ia})
+                
+                # --- DETECCIÓN AUTOMÁTICA DE INTENCIÓN DE COMPRA ---
+                # Si la IA menciona un producto, le ponemos un botón para agregarlo
+                for _, row in df_listas.iterrows():
+                    nombre_producto = str(row.iloc[0])
+                    if nombre_producto.lower() in respuesta_ia.lower():
+                        col_btn, col_price = st.columns([2, 1])
+                        with col_btn:
+                            if st.button(f"➕ Agregar al carrito: {nombre_producto}", key=f"btn_{nombre_producto}"):
                                 st.session_state.pedido.append({
-                                    "Producto": nombre, "Cantidad": cant, 
-                                    "Precio Unitario": precio, "Total": cant * precio
+                                    "Producto": nombre_producto, "Cantidad": 1, 
+                                    "Precio Unitario": row.iloc[1], "Total": row.iloc[1]
                                 })
                                 st.rerun()
-            if not encontro_algo:
-                st.info("La IA buscó el producto, pero no encontró una coincidencia fuerte (prueba con otras palabras).")
+                        with col_price:
+                            st.write(f"Precio: ${row.iloc[1]}")
 
-elif st.session_state.cliente_actual and len(product_names) == 0:
-    st.warning("No se pudieron cargar productos. Revisa que el Excel tenga datos en la primera columna.")
-
-# 3. CARRITO DE PEDIDOS
+# --- CARRITO DE PEDIDOS ---
 st.divider()
 if st.session_state.pedido:
     df_pedido = pd.DataFrame(st.session_state.pedido)
@@ -159,9 +121,8 @@ if st.session_state.pedido:
     with col2:
         total = df_resumen['Total'].sum()
         st.metric(label="💰 TOTAL DEL PEDIDO", value=f"$ {total:,.2f}")
-        if st.button("🧹 Vaciar carrito", type="primary"):
+        if st.button("🧹 Vaciar carrito y empezar de nuevo", type="primary"):
             st.session_state.pedido = []
-            st.session_state.cliente_actual = None
             st.rerun()
 else:
-    st.info("El carrito está vacío. Selecciona un cliente y busca un producto con IA.")
+    st.info("El carrito está vacío. Selecciona un cliente y habla con el chatbot para agregar productos.")
