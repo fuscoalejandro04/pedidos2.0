@@ -1,8 +1,8 @@
 streamlit
 pandas
 openpyxl
+sentence-transformers
+scikit-learn
 google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
-sentence-transformers
-scikit-learn
